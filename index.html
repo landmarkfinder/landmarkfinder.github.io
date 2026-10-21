@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landmark Finder</title>
+<!-- Security: the page may only load code/fonts from these exact places and only talk to Wikipedia + OpenStreetMap -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: https://upload.wikimedia.org; connect-src https://en.wikipedia.org https://nominatim.openstreetmap.org; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<!-- exifr reads the GPS location stored inside a phone photo. The integrity hash blocks it if the file is ever tampered with. -->
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js" integrity="sha384-KRanV2NRwHPanp7iM6nlLQC5jPCTscSYMko30dLJHzNXJaUNtcucWv+SOi3jV3PE" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #eef1ef; --paper: #ffffff; --ink: #1d2a2a; --muted: #5b6b69;
+    --line: #cfd8d5; --accent: #1f6f66; --accent-ink: #ffffff; --stamp: #b5782a;
+    --display: "Young Serif", Georgia, serif;
+    --body: "Figtree", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141b1b; --paper: #1c2525; --ink: #e6ecea; --muted: #9aaba8;
+      --line: #2f3c3b; --accent: #4fb3a6; --accent-ink: #0f1717; --stamp: #d9a35a;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--body); font-size: 16px; line-height: 1.55;
+    padding: 40px 16px 56px;
+  }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 28px; }
+  h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; line-height: 1.1; margin: 0; }
+  .intro p { margin: 8px 0 0; color: var(--muted); }
+
+  .tools { display: grid; gap: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type="text"] {
+    flex: 1 1 220px; min-width: 0; font: inherit; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--paper); color: var(--ink);
+  }
+  button, .photo-btn {
+    font: inherit; font-weight: 600; cursor: pointer; padding: 12px 18px;
+    border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--accent-ink);
+  }
+  .photo-btn { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  input:focus-visible, button:focus-visible, .photo-btn:focus-within { outline: 2px solid var(--stamp); outline-offset: 2px; }
+  #photo { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .or, .hint { color: var(--muted); font-size: .9rem; }
+
+  .card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .card img { display: block; width: 100%; max-height: 320px; object-fit: cover; }
+  .card-body { padding: 22px; display: grid; gap: 14px; }
+  .tag { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--stamp); }
+  .card h2 { font-family: var(--display); font-weight: 400; font-size: 1.8rem; line-height: 1.15; margin: 0; }
+  .card p { margin: 0; }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; padding-top: 14px; border-top: 1px solid var(--line); }
+  .facts dt { font-family: var(--mono); font-size: .8rem; color: var(--muted); padding-top: 2px; }
+  .facts dd { margin: 0; min-width: 0; }
+  .coords { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .card a { color: var(--accent); font-weight: 600; }
+  .error { color: var(--stamp); }
+  .nearby { display: flex; flex-wrap: wrap; gap: 6px; }
+  .nearby button { padding: 6px 12px; font-size: .9rem; font-weight: 500; background: transparent; color: var(--accent); }
+  footer { color: var(--muted); font-size: .8rem; text-align: center; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header class="intro">
+    <h1>Landmark Finder</h1>
+    <p>Type the name of a landmark, or upload a photo you took there. You'll get a short description and where it is.</p>
+  </header>
+
+  <section class="tools">
+    <form id="search-form" class="row">
+      <input id="query" type="text" placeholder="e.g. Mount Kilimanjaro, Big Ben, Taj Mahal" autocomplete="off">
+      <button id="search-btn" type="submit">Search</button>
+    </form>
+    <div class="row">
+      <span class="or">or</span>
+      <label class="photo-btn">
+        Take or upload a photo
+        <input id="photo" type="file" accept="image/*" capture="environment">
+      </label>
+    </div>
+    <p class="hint">Photos work by reading the location your phone saved in the picture, then finding the landmarks at that spot. Turn on location for your camera app.</p>
+  </section>
+
+  <section id="result" class="card" aria-live="polite">
+    <img id="result-img" alt="" hidden>
+    <div class="card-body">
+      <span class="tag" id="result-tag">Example</span>
+      <h2 id="result-name">Eiffel Tower</h2>
+      <p id="result-desc">The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris, France. It is named after the engineer Gustave Eiffel, whose company designed and built the tower from 1887 to 1889.</p>
+      <dl class="facts" id="facts">
+        <dt>Location</dt><dd id="result-place">Paris, France</dd>
+        <dt>Coordinates</dt><dd id="result-coords" class="coords">48.8584° N, 2.2945° E</dd>
+        <dt>Links</dt><dd><a id="result-map" href="https://www.google.com/maps/search/?api=1&query=48.8584,2.2945" target="_blank" rel="noopener">Map</a> · <a id="result-wiki" href="https://en.wikipedia.org/wiki/Eiffel_Tower" target="_blank" rel="noopener">Wikipedia</a></dd>
+      </dl>
+      <div id="nearby-box" hidden>
+        <span class="tag">Also near this spot</span>
+        <div class="nearby" id="nearby"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>Descriptions from <a href="https://www.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a>. Place names from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</footer>
+</main>
+
+<script>
+  const WIKI = "https://en.wikipedia.org/w/api.php?format=json&origin=*&";
+
+  const $ = (id) => document.getElementById(id);
+  const form = $("search-form"), queryBox = $("query"), searchBtn = $("search-btn"), photoInput = $("photo");
+
+  // ---------- Talking to Wikipedia ----------
+
+  // Get the details of one Wikipedia page (by its title or page id)
+  async function getPage(params) {
+    const url = WIKI + "action=query&redirects=1&prop=extracts|coordinates|pageimages&exintro=1&explaintext=1&exsentences=4&pithumbsize=800&" + params;
+    const data = await (await fetch(url)).json();
+    const pages = data.query && data.query.pages;
+    return pages ? Object.values(pages)[0] : null;
+  }
+
+  // Search by name: find the best-matching article, then get its details
+  async function searchByName(name) {
+    const url = WIKI + "action=query&list=search&srlimit=1&srsearch=" + encodeURIComponent(name);
+    const data = await (await fetch(url)).json();
+    const hit = data.query.search[0];
+    if (!hit) return null;
+    return getPage("pageids=" + hit.pageid);
+  }
+
+  // Find Wikipedia articles within 500 m of a GPS point, closest first
+  async function landmarksNear(lat, lng) {
+    const url = WIKI + "action=query&list=geosearch&gsradius=500&gslimit=8&gscoord=" + lat + "|" + lng;
+    const data = await (await fetch(url)).json();
+    return data.query.geosearch;
+  }
+
+  // Turn coordinates into "City, Country" using OpenStreetMap (free, no key)
+  async function placeName(lat, lng) {
+    try {
+      const url = "https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&accept-language=en&lat=" + lat + "&lon=" + lng;
+      const a = (await (await fetch(url)).json()).address || {};
+      return [a.city || a.town || a.village || a.county || a.state, a.country].filter(Boolean).join(", ");
+    } catch { return ""; }
+  }
+
+  // ---------- Showing results ----------
+
+  function showMessage(title, text, isError) {
+    $("result-tag").textContent = isError ? "Not found" : "Working";
+    $("result-name").textContent = title;
+    $("result-desc").textContent = text;
+    $("result-desc").className = isError ? "error" : "";
+    $("facts").hidden = true;
+    $("nearby-box").hidden = true;
+  }
+
+  async function showPage(page, label) {
+    if (!page || page.missing !== undefined) {
+      showMessage("No match", "Couldn't find that landmark on Wikipedia. Check the spelling or try another name.", true);
+      return;
+    }
+    $("result-tag").textContent = label;
+    $("result-name").textContent = page.title;
+    $("result-desc").textContent = page.extract || "No description available.";
+    $("result-desc").className = "";
+    $("result-wiki").href = "https://en.wikipedia.org/?curid=" + page.pageid;
+
+    const img = $("result-img");
+    if (page.thumbnail && !img.dataset.userPhoto) { img.src = page.thumbnail.source; img.alt = page.title; img.hidden = false; }
+
+    const c = page.coordinates && page.coordinates[0];
+    if (c) {
+      $("result-coords").textContent =
+        Math.abs(c.lat).toFixed(4) + "° " + (c.lat >= 0 ? "N" : "S") + ", " +
+        Math.abs(c.lon).toFixed(4) + "° " + (c.lon >= 0 ? "E" : "W");
+      $("result-map").href = "https://www.google.com/maps/search/?api=1&query=" + c.lat + "," + c.lon;
+      $("result-place").textContent = "Looking up…";
+      $("facts").hidden = false;
+      $("result-place").textContent = (await placeName(c.lat, c.lon)) || "Unknown";
+    } else {
+      $("result-place").textContent = "Not listed on Wikipedia";
+      $("result-coords").textContent = "—";
+      $("result-map").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(page.title);
+      $("facts").hidden = false;
+    }
+  }
+
+  function setBusy(busy) { searchBtn.disabled = busy; photoInput.disabled = busy; }
+
+  // ---------- 1) Search by name ----------
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = queryBox.value.trim();
+    if (!name) return;
+    $("result-img").hidden = true;
+    delete $("result-img").dataset.userPhoto;
+    showMessage("Searching…", "Looking up " + name + " on Wikipedia.");
+    setBusy(true);
+    try {
+      await showPage(await searchByName(name), "Search result");
+    } catch {
+      showMessage("Connection problem", "Couldn't reach Wikipedia. Check your internet connection and try again.", true);
+    }
+    setBusy(false);
+  });
+
+  // ---------- 2) Find landmarks from a photo's location ----------
+  photoInput.addEventListener("change", async () => {
+    const file = photoInput.files[0];
+    photoInput.value = "";
+    if (!file) return;
+
+    const img = $("result-img");
+    img.src = URL.createObjectURL(file);
+    img.alt = "Your photo";
+    img.dataset.userPhoto = "1";
+    img.hidden = false;
+    showMessage("Reading photo…", "Checking where this photo was taken.");
+    setBusy(true);
+
+    try {
+      const gps = await exifr.gps(file).catch(() => null);
+      if (!gps || gps.latitude == null) {
+        showMessage("No location in this photo",
+          "This photo doesn't include where it was taken. Many apps remove it when sharing. Try the original photo from your camera, or type the landmark's name above.", true);
+      } else {
+        const places = await landmarksNear(gps.latitude, gps.longitude);
+        if (!places.length) {
+          showMessage("Nothing nearby", "No Wikipedia landmarks within 500 m of where this photo was taken. Try typing the name above.", true);
+        } else {
+          await showPage(await getPage("pageids=" + places[0].pageid), "Closest landmark to your photo");
+          // Let the user pick a different one if the closest isn't right
+          const box = $("nearby");
+          box.innerHTML = "";
+          places.slice(1).forEach((p) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.textContent = p.title + " (" + Math.round(p.dist) + " m)";
+            b.onclick = async () => { await showPage(await getPage("pageids=" + p.pageid), "Near your photo"); $("nearby-box").hidden = false; };
+            box.appendChild(b);
+          });
+          $("nearby-box").hidden = places.length < 2;
+        }
+      }
+    } catch {
+      showMessage("Connection problem", "Couldn't reach Wikipedia. Check your internet connection and try again.", true);
+    }
+    setBusy(false);
+  });
+</script>
+</body>
+</html>
