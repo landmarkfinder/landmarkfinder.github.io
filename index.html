@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Landmark Finder</title>
 <!-- Security: the page may only load code/fonts from these exact places and only talk to Wikipedia + OpenStreetMap -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: https://upload.wikimedia.org; connect-src https://en.wikipedia.org https://nominatim.openstreetmap.org; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: https://*.wikimedia.org; connect-src https://en.wikipedia.org https://nominatim.openstreetmap.org; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap">
 <!-- exifr reads the GPS location stored inside a phone photo. The integrity hash blocks it if the file is ever tampered with. -->
@@ -124,7 +124,7 @@
 
   // Get the details of one Wikipedia page (by its title or page id)
   async function getPage(params) {
-    const url = WIKI + "action=query&redirects=1&prop=extracts|coordinates|pageimages&exintro=1&explaintext=1&exsentences=4&pithumbsize=800&" + params;
+    const url = WIKI + "action=query&redirects=1&prop=extracts|coordinates|pageimages&coprimary=all&exintro=1&explaintext=1&exsentences=4&pithumbsize=800&" + params;
     const data = await (await fetch(url)).json();
     const pages = data.query && data.query.pages;
     return pages ? Object.values(pages)[0] : null;
@@ -173,7 +173,8 @@
     }
     $("result-tag").textContent = label;
     $("result-name").textContent = page.title;
-    $("result-desc").textContent = page.extract || "No description available.";
+    // Wikipedia strips pronunciations, leaving empty brackets like "()" — tidy those up
+    $("result-desc").textContent = (page.extract || "No description available.").replace(/\s*\(\s*[;,]?\s*\)/g, "");
     $("result-desc").className = "";
     $("result-wiki").href = "https://en.wikipedia.org/?curid=" + page.pageid;
 
